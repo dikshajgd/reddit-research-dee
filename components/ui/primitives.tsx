@@ -42,6 +42,39 @@ export function Card({ className, ...props }: React.HTMLAttributes<HTMLDivElemen
   );
 }
 
+export function ProgressBar({
+  value,
+  tone = "default",
+  className,
+}: {
+  /** 0..1 fill level; clamped. */
+  value: number;
+  tone?: "default" | "muted" | "success" | "danger";
+  className?: string;
+}) {
+  const pct = Math.round(Math.max(0, Math.min(1, value)) * 100);
+  const fill = {
+    default: "bg-neutral-900",
+    muted: "bg-neutral-400",
+    success: "bg-green-600",
+    danger: "bg-red-600",
+  }[tone];
+  return (
+    <div
+      className={cn("h-1.5 w-full overflow-hidden rounded-full bg-neutral-200", className)}
+      role="progressbar"
+      aria-valuenow={pct}
+      aria-valuemin={0}
+      aria-valuemax={100}
+    >
+      <div
+        className={cn("h-full transition-all duration-300", fill)}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
 export function Slider({
   value,
   onValueChange,

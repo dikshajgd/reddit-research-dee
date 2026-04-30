@@ -86,6 +86,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
       if (s.step3.plannedChunks === 1) {
         s.step3.blobUrl = blobUrl;
         s.step3.status = "complete";
+        s.step3.completedAt = Date.now();
         appendLog(s, "info", "Step 3 complete (single call).");
       } else if (s.step3.completedChunks >= s.step3.plannedChunks) {
         s.step3.status = "merging";
@@ -99,6 +100,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
     const updated = await updateRun(runId, (s) => {
       s.step3.status = "failed";
       s.step3.error = msg;
+      s.step3.completedAt = Date.now();
       appendLog(s, "error", `Step 3 chunk ${i + 1} failed: ${msg}`);
     });
     return NextResponse.json(updated, { status: 500 });

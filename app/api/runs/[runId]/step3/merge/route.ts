@@ -24,6 +24,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
     const updated = await updateRun(runId, (s) => {
       s.step3.blobUrl = urls[0];
       s.step3.status = "complete";
+      s.step3.completedAt = Date.now();
       appendLog(s, "info", "Step 3 complete (single chunk, no merge).");
     });
     return NextResponse.json(updated);
@@ -57,6 +58,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
     const updated = await updateRun(runId, (s) => {
       s.step3.blobUrl = blobUrl;
       s.step3.status = "complete";
+      s.step3.completedAt = Date.now();
       appendLog(s, "info", `Step 3 merge complete (${merged.length} chars).`);
     });
     return NextResponse.json(updated);
@@ -65,6 +67,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
     const updated = await updateRun(runId, (s) => {
       s.step3.status = "failed";
       s.step3.error = msg;
+      s.step3.completedAt = Date.now();
       appendLog(s, "error", `Step 3 merge failed: ${msg}`);
     });
     return NextResponse.json(updated, { status: 500 });

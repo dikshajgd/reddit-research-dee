@@ -26,6 +26,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
 
   const threadsBlobUrl = await putJson(blobPath(runId, "step2-threads.json"), threads);
 
+  const now = Date.now();
   const updated = await updateRun(runId, (s) => {
     s.step2 = {
       status: "uploaded",
@@ -34,6 +35,8 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
       completedBatches: 0,
       threadCount: threads.length,
       threadsBlobUrl,
+      startedAt: now,
+      completedAt: now,
     };
     appendLog(s, "info", `Step 2 bypassed (uploaded). Using ${threads.length} threads.`);
   });

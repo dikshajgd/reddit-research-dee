@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { newRun, setRun } from "@/lib/store";
+import { addRunToIndex, newRun, setRun } from "@/lib/store";
 import { parseSubreddits, parseKeywords } from "@/lib/parse-step1";
 
 export const runtime = "nodejs";
@@ -40,5 +40,6 @@ export async function POST(req: Request) {
   }
 
   await setRun(state);
+  await addRunToIndex(state.runId, state.createdAt);
   return NextResponse.json({ runId: state.runId, state });
 }

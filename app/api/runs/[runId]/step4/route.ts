@@ -17,6 +17,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
 
   await updateRun(runId, (s) => {
     s.step4.status = "running";
+    s.step4.startedAt = Date.now();
     appendLog(s, "info", "Starting Step 4: Persona & Awareness Level Clustering...");
   });
 
@@ -41,7 +42,13 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
 
     const elapsedMs = Date.now() - state.createdAt;
     const updated = await updateRun(runId, (s) => {
-      s.step4 = { status: "complete", blobUrl };
+      const startedAt = s.step4.startedAt;
+      s.step4 = {
+        status: "complete",
+        blobUrl,
+        startedAt,
+        completedAt: Date.now(),
+      };
       s.elapsedMs = elapsedMs;
       appendLog(s, "info", `Step 4 complete (${md.length} chars).`);
     });
@@ -51,6 +58,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
     const updated = await updateRun(runId, (s) => {
       s.step4.status = "failed";
       s.step4.error = msg;
+      s.step4.completedAt = Date.now();
       appendLog(s, "error", `Step 4 failed: ${msg}`);
     });
     return NextResponse.json(updated, { status: 500 });

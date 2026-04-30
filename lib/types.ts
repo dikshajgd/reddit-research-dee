@@ -52,6 +52,8 @@ export type RunState = {
     parsed?: ParsedStep1;
     blobUrl?: string;
     error?: string;
+    startedAt?: number;
+    completedAt?: number;
   };
   step2: {
     status: StepStatus;
@@ -61,6 +63,8 @@ export type RunState = {
     threadCount: number;
     threadsBlobUrl?: string;
     error?: string;
+    startedAt?: number;
+    completedAt?: number;
   };
   step3: {
     status: StepStatus;
@@ -69,14 +73,27 @@ export type RunState = {
     chunkBlobUrls: string[];
     blobUrl?: string;
     error?: string;
+    startedAt?: number;
+    completedAt?: number;
   };
   step4: {
     status: StepStatus;
     blobUrl?: string;
     error?: string;
+    startedAt?: number;
+    completedAt?: number;
   };
   review: { submitted: boolean; editedAt?: number };
   logs: LogEntry[];
+  elapsedMs?: number;
+};
+
+export type RunSummary = {
+  runId: string;
+  createdAt: number;
+  product: string;
+  industry: string;
+  finalStatus: "running" | "complete" | "failed" | "partial";
   elapsedMs?: number;
 };
 

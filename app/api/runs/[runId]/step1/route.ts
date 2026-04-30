@@ -19,6 +19,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
 
   await updateRun(runId, (s) => {
     s.step1.status = "running";
+    s.step1.startedAt = Date.now();
     appendLog(s, "info", "Starting Step 1: Keyword & Subreddit Generation...");
   });
 
@@ -49,10 +50,13 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
     const blobUrl = await putText(blobPath(runId, "step1.md"), md);
 
     const updated = await updateRun(runId, (s) => {
+      const startedAt = s.step1.startedAt;
       s.step1 = {
         status: "complete",
         parsed: { subreddits, keywords },
         blobUrl,
+        startedAt,
+        completedAt: Date.now(),
       };
       appendLog(s, "info", `Step 1 complete. Found ${totalSubs} subreddits, ${totalKws} keywords.`);
     });
@@ -62,6 +66,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
     const updated = await updateRun(runId, (s) => {
       s.step1.status = "failed";
       s.step1.error = msg;
+      s.step1.completedAt = Date.now();
       appendLog(s, "error", `Step 1 failed: ${msg}`);
     });
     return NextResponse.json(updated, { status: 500 });

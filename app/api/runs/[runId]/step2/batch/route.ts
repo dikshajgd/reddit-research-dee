@@ -64,6 +64,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
       appendLog(s, "info", `Step 2 batch ${i + 1}: +${items.length} threads (total ${merged.length}).`);
 
       if (s.step2.completedBatches >= s.step2.plannedBatches) {
+        s.step2.completedAt = Date.now();
         if (merged.length === 0) {
           s.step2.status = "failed";
           s.step2.method = "none";
@@ -87,6 +88,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
       appendLog(s, "error", `Step 2 batch ${i + 1} failed: ${msg}`);
       s.step2.completedBatches = Math.min(s.step2.completedBatches + 1, s.step2.plannedBatches);
       if (s.step2.completedBatches >= s.step2.plannedBatches) {
+        s.step2.completedAt = Date.now();
         if (s.step2.threadCount > 0) {
           s.step2.status = "complete";
           s.step2.method = "apify";

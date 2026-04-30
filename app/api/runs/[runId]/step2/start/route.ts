@@ -34,6 +34,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
       plannedBatches: batches.length,
       completedBatches: 0,
       threadCount: 0,
+      startedAt: Date.now(),
     };
     appendLog(s, "info", `Step 2 planned ${batches.length} Apify batches.`);
   });

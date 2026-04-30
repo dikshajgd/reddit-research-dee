@@ -2,10 +2,24 @@
 import { useEffect, useState } from "react";
 import dynamic from "next/dynamic";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import type { RunState } from "@/lib/types";
 import { Button, Card } from "./ui/primitives";
 
 const MDEditor = dynamic(() => import("@uiw/react-md-editor"), { ssr: false });
+
+const PROSE_CLASS =
+  "prose prose-sm max-w-none " +
+  "prose-headings:mt-5 prose-headings:mb-2 prose-headings:font-semibold " +
+  "prose-h1:text-2xl prose-h2:text-xl prose-h3:text-base " +
+  "prose-p:my-2 prose-li:my-0.5 prose-ul:my-2 prose-ol:my-2 " +
+  "prose-table:my-3 prose-table:border prose-table:border-neutral-200 " +
+  "prose-th:bg-neutral-100 prose-th:px-3 prose-th:py-2 prose-th:text-left " +
+  "prose-td:border-t prose-td:border-neutral-200 prose-td:px-3 prose-td:py-2 prose-td:align-top " +
+  "prose-code:bg-neutral-100 prose-code:px-1 prose-code:py-0.5 prose-code:rounded " +
+  "prose-blockquote:border-l-4 prose-blockquote:border-neutral-300 prose-blockquote:text-neutral-700";
+
+const REMARK_PLUGINS = [remarkGfm];
 
 type Tab = "subreddits" | "voc" | "personas" | "review" | "logs";
 
@@ -98,8 +112,8 @@ export default function ResultsTabs({
               <a href={downloadHref("subreddits")}>
                 <Button variant="secondary">⬇️ Download Subreddit Map (.md)</Button>
               </a>
-              <article className="prose prose-sm max-w-none">
-                <ReactMarkdown>{step1Md}</ReactMarkdown>
+              <article className={PROSE_CLASS}>
+                <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{step1Md}</ReactMarkdown>
               </article>
             </>
           ) : (
@@ -117,8 +131,8 @@ export default function ResultsTabs({
               <a href={downloadHref("voc")}>
                 <Button variant="secondary">⬇️ Download VOC Document (.md)</Button>
               </a>
-              <article className="prose prose-sm max-w-none">
-                <ReactMarkdown>{step3Md}</ReactMarkdown>
+              <article className={PROSE_CLASS}>
+                <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{step3Md}</ReactMarkdown>
               </article>
             </>
           ) : state.step3.status === "failed" ? (
@@ -138,8 +152,8 @@ export default function ResultsTabs({
               <a href={downloadHref("personas")}>
                 <Button variant="secondary">⬇️ Download Personas (.md)</Button>
               </a>
-              <article className="prose prose-sm max-w-none">
-                <ReactMarkdown>{step4Md}</ReactMarkdown>
+              <article className={PROSE_CLASS}>
+                <ReactMarkdown remarkPlugins={REMARK_PLUGINS}>{step4Md}</ReactMarkdown>
               </article>
             </>
           ) : state.step4.status === "failed" ? (

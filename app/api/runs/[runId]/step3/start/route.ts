@@ -30,6 +30,7 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
       plannedChunks: planned,
       completedChunks: 0,
       chunkBlobUrls: [],
+      startedAt: Date.now(),
     };
     appendLog(s, "info", `Step 3 planned ${planned} chunk(s). Total ${threads.length} threads.`);
   });
