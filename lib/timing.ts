@@ -78,5 +78,9 @@ export function elapsedMsForStep(
     step === 1 ? state.step1 : step === 2 ? state.step2 : step === 3 ? state.step3 : state.step4;
   if (!s.startedAt) return null;
   const end = s.completedAt ?? now;
-  return Math.max(0, end - s.startedAt);
+  const candidate = Math.max(0, end - s.startedAt);
+  // Safety: a step can never have run longer than the whole pipeline.
+  // Caps absurd timestamps (clock skew, stale state) at total run elapsed.
+  const totalCap = Math.max(0, (state.elapsedMs ?? now - state.createdAt));
+  return Math.min(candidate, totalCap);
 }

@@ -11,8 +11,74 @@ const batchKey = (runId: string, pass: number, i: number) =>
   `run:${runId}:step2:pass:${pass}:batch:${i}`;
 const chunkKey = (runId: string, i: number) => `run:${runId}:step3:chunk:${i}`;
 
+// Self-heal known stale-state shapes. Downstream-complete + upstream-running
+// is logically impossible (downstream only fires after upstream completes), so
+// fold the upstream forward.
+function repairRunState(state: RunState): { state: RunState; changed: boolean } {
+  let changed = false;
+  const now = Date.now();
+
+  if (
+    state.step4.status === "complete" &&
+    state.step3.status !== "complete" &&
+    state.step3.status !== "failed" &&
+    state.step3.status !== "skipped"
+  ) {
+    state.step3.status = "complete";
+    state.step3.completedAt =
+      state.step3.completedAt ?? state.step4.startedAt ?? now;
+    if (state.step3.plannedChunks > 0) {
+      state.step3.completedChunks = state.step3.plannedChunks;
+    }
+    changed = true;
+  }
+
+  if (
+    state.step3.status === "complete" &&
+    state.step2.status !== "complete" &&
+    state.step2.status !== "failed" &&
+    state.step2.status !== "skipped" &&
+    state.step2.status !== "uploaded"
+  ) {
+    state.step2.status = "complete";
+    state.step2.completedAt =
+      state.step2.completedAt ?? state.step3.startedAt ?? now;
+    if (state.step2.plannedBatches > 0) {
+      state.step2.completedBatches = state.step2.plannedBatches;
+    }
+    // Clear any orphaned Apify tracking marker.
+    if (state.step2.activeApifyRunId) state.step2.activeApifyRunId = undefined;
+    changed = true;
+  }
+
+  if (
+    state.step2.status === "complete" &&
+    state.step1.status !== "complete" &&
+    state.step1.status !== "failed" &&
+    state.step1.status !== "skipped"
+  ) {
+    state.step1.status = "complete";
+    state.step1.completedAt =
+      state.step1.completedAt ?? state.step2.startedAt ?? now;
+    changed = true;
+  }
+
+  return { state, changed };
+}
+
 export async function getRun(runId: string): Promise<RunState | null> {
-  return (await kv.get<RunState>(runKey(runId))) ?? null;
+  const raw = await kv.get<RunState>(runKey(runId));
+  if (!raw) return null;
+  const { state, changed } = repairRunState(raw);
+  if (changed) {
+    // Best-effort persist so subsequent reads see the cleaned state.
+    try {
+      await kv.set(runKey(state.runId), state);
+    } catch {
+      // ignore — the in-memory state is still correct for this response
+    }
+  }
+  return state;
 }
 
 export async function setRun(state: RunState): Promise<void> {
