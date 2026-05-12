@@ -36,9 +36,13 @@ export type StepStatus =
 
 export type LogEntry = { ts: number; level: "info" | "warn" | "error"; msg: string };
 
+export type RunControl = "running" | "paused" | "stopped";
+
 export type RunState = {
   runId: string;
   createdAt: number;
+  /** Whether the client driver should advance the pipeline. Defaults to "running". */
+  control?: RunControl;
   input: {
     product: string;
     industry: string;
@@ -67,6 +71,8 @@ export type RunState = {
     completedAt?: number;
     /** Number of scrape passes attempted (1 = initial; >1 = "scrape more" passes). */
     passCount?: number;
+    /** Apify actor run id currently in flight for this step, so /stop can abort it. */
+    activeApifyRunId?: string;
   };
   step3: {
     status: StepStatus;

@@ -38,6 +38,10 @@ function icon(status: string): string {
     case "skipped":
     case "uploaded":
       return "⏭️";
+    case "paused":
+      return "⏸️";
+    case "stopped":
+      return "⏹️";
     default:
       return "⬜";
   }
@@ -61,6 +65,10 @@ function statusLabel(status: string): string {
       return "Your turn";
     case "pending-review":
       return "Pending";
+    case "paused":
+      return "Paused";
+    case "stopped":
+      return "Stopped";
     default:
       return "Pending";
   }
@@ -84,9 +92,11 @@ function isRunningStatus(s: string): boolean {
 }
 
 export default function StepProgress({ state }: { state: RunState }) {
-  // Tick every 1s while any step is running so timers stay live.
+  const control = state.control ?? "running";
+  // Tick every 1s while a step is running AND the user hasn't paused/stopped.
   const [now, setNow] = useState<number>(() => Date.now());
   useEffect(() => {
+    if (control !== "running") return;
     const anyRunning =
       isRunningStatus(state.step1.status) ||
       isRunningStatus(state.step2.status) ||
@@ -95,7 +105,7 @@ export default function StepProgress({ state }: { state: RunState }) {
     if (!anyRunning) return;
     const id = setInterval(() => setNow(Date.now()), 1000);
     return () => clearInterval(id);
-  }, [state.step1.status, state.step2.status, state.step3.status, state.step4.status]);
+  }, [control, state.step1.status, state.step2.status, state.step3.status, state.step4.status]);
 
   const totalElapsed = state.elapsedMs ?? Math.max(0, now - state.createdAt);
 
@@ -110,7 +120,14 @@ export default function StepProgress({ state }: { state: RunState }) {
 
       <div className="grid grid-cols-1 md:grid-cols-5 gap-3">
         {STEPS.map((s) => {
-          const status = statusFor(state, s.num);
+          const baseStatus = statusFor(state, s.num);
+          // When the run is paused/stopped, present in-flight steps with that
+          // label rather than a misleading "Running".
+          const overlay =
+            control !== "running" && (baseStatus === "running" || baseStatus === "merging")
+              ? control
+              : null;
+          const status = overlay ?? baseStatus;
           const detail = progressDetail(state, s.num);
 
           // Manual review (step 5) doesn't get a timer/progress bar.
@@ -134,13 +151,21 @@ export default function StepProgress({ state }: { state: RunState }) {
           const progress = stepProgress(stepNum, state, now);
 
           const isComplete = status === "complete";
-          const isFailed = status === "failed";
+          const isFailed = status === "failed" || status === "stopped";
+          const isPaused = status === "paused";
           const isRunning = status === "running" || status === "merging";
 
           // Pick a tone for the bar.
-          const tone = isFailed ? "danger" : isComplete ? "success" : "default";
+          const tone = isFailed
+            ? "danger"
+            : isComplete
+            ? "success"
+            : isPaused
+            ? "muted"
+            : "default";
           const barValue = isComplete ? 1 : progress ?? 0;
-          const showBar = status !== "pending" && status !== "skipped" && status !== "uploaded";
+          const showBar =
+            status !== "pending" && status !== "skipped" && status !== "uploaded";
 
           return (
             <div

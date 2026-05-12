@@ -26,6 +26,9 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
 
   const state = await getRun(runId);
   if (!state) return NextResponse.json({ error: "not found" }, { status: 404 });
+  if (state.control === "stopped") {
+    return NextResponse.json({ error: "Run stopped" }, { status: 410 });
+  }
   const parsed = state.step1.parsed;
   if (!parsed) return NextResponse.json({ error: "Step 1 incomplete" }, { status: 400 });
 
@@ -43,11 +46,39 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
 
   try {
     // Hard-cap posts-per-URL to keep Apify spend predictable.
-    const items = await runApifyBatch(
+    const result = await runApifyBatch(
       batchUrls,
       Math.min(10, state.config.maxThreads),
       state.config.maxComments,
+      {
+        onStart: async (apifyRunId) => {
+          // Track which actor run is in flight so /stop can abort it.
+          await updateRun(runId, (s) => {
+            s.step2.activeApifyRunId = apifyRunId;
+          });
+        },
+      },
     );
+
+    // Clear tracking marker as soon as Apify returns (aborted or not).
+    await updateRun(runId, (s) => {
+      if (s.step2.activeApifyRunId) s.step2.activeApifyRunId = undefined;
+    });
+
+    if (result.aborted) {
+      // Run was stopped mid-Apify. Mark batch as cancelled and return — the
+      // driver won't fire further batches because state.control === "stopped".
+      await setBatch(runId, pass, i, {
+        status: "failed",
+        error: "Aborted by user",
+      });
+      const aborted = await updateRun(runId, (s) => {
+        appendLog(s, "warn", `Step 2 pass ${pass} batch ${i + 1} aborted.`);
+      });
+      return NextResponse.json(aborted);
+    }
+
+    const items = result.threads;
 
     // Merge into the run's accumulating thread list (stored in blob).
     let accumulated: RedditThread[] = [];
@@ -96,6 +127,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
     const msg = err instanceof Error ? err.message : String(err);
     await setBatch(runId, pass, i, { status: "failed", error: msg });
     const updated = await updateRun(runId, (s) => {
+      if (s.step2.activeApifyRunId) s.step2.activeApifyRunId = undefined;
       // Don't fail the whole step on one batch — surface the error in logs.
       appendLog(s, "error", `Step 2 pass ${pass} batch ${i + 1} failed: ${msg}`);
       s.step2.completedBatches = Math.min(s.step2.completedBatches + 1, s.step2.plannedBatches);

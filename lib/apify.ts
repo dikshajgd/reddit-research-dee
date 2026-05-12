@@ -73,11 +73,16 @@ function normalizeApifyResults(items: ApifyItem[]): RedditThread[] {
   return threads;
 }
 
+export type RunApifyBatchResult =
+  | { aborted: true; threads: [] }
+  | { aborted: false; threads: RedditThread[] };
+
 export async function runApifyBatch(
   startUrls: string[],
   maxPosts: number,
   maxComments: number,
-): Promise<RedditThread[]> {
+  opts?: { onStart?: (apifyRunId: string) => void | Promise<void> },
+): Promise<RunApifyBatchResult> {
   const client = getClient();
   const input = {
     startUrls: startUrls.map((u) => ({ url: u })),
@@ -86,12 +91,42 @@ export async function runApifyBatch(
     maxComments,
   };
 
-  // .call() runs the actor and waits for completion (subject to function timeout).
-  const run = await client.actor(APIFY_ACTOR).call(input, { waitSecs: 280 });
-  if (!run?.defaultDatasetId) return [];
+  // Start the actor (non-blocking) so the caller can record the runId and
+  // potentially abort it from another request.
+  const started = await client.actor(APIFY_ACTOR).start(input);
+  if (opts?.onStart) {
+    try {
+      await opts.onStart(started.id);
+    } catch {
+      // tracking-side failure shouldn't kill the scrape
+    }
+  }
 
-  const { items } = await client.dataset(run.defaultDatasetId).listItems({ limit: 1000 });
-  return normalizeApifyResults(items as ApifyItem[]);
+  // Poll until the actor finishes (or hits the 280s budget).
+  const finished = await client.run(started.id).waitForFinish({ waitSecs: 280 });
+  if (!finished) return { aborted: false, threads: [] };
+
+  if (finished.status === "ABORTED" || finished.status === "ABORTING") {
+    return { aborted: true, threads: [] };
+  }
+  if (finished.status !== "SUCCEEDED") {
+    return { aborted: false, threads: [] };
+  }
+  if (!finished.defaultDatasetId) return { aborted: false, threads: [] };
+
+  const { items } = await client
+    .dataset(finished.defaultDatasetId)
+    .listItems({ limit: 1000 });
+  return { aborted: false, threads: normalizeApifyResults(items as ApifyItem[]) };
+}
+
+export async function abortApifyRun(apifyRunId: string): Promise<void> {
+  const client = getClient();
+  try {
+    await client.run(apifyRunId).abort();
+  } catch {
+    // best-effort; the run may already have finished
+  }
 }
 
 export function deduplicateThreads(items: RedditThread[]): RedditThread[] {

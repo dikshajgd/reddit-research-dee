@@ -102,7 +102,11 @@ export async function backfillIndexIfEmpty(): Promise<number> {
 function summarize(state: RunState): RunSummary {
   const steps = [state.step1.status, state.step2.status, state.step3.status, state.step4.status];
   let finalStatus: RunSummary["finalStatus"];
-  if (steps.some((s) => s === "running" || s === "merging")) {
+  if (state.control === "stopped") {
+    finalStatus = "failed"; // shown as a clear non-success state in the list
+  } else if (state.control === "paused") {
+    finalStatus = "partial";
+  } else if (steps.some((s) => s === "running" || s === "merging")) {
     finalStatus = "running";
   } else if (state.step4.status === "complete") {
     finalStatus = "complete";
@@ -145,6 +149,7 @@ export function newRun(input: {
   return {
     runId: crypto.randomUUID(),
     createdAt: Date.now(),
+    control: "running",
     input: {
       product: input.product,
       industry: input.industry,
