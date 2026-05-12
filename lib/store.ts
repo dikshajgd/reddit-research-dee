@@ -69,6 +69,36 @@ export async function removeRunFromIndex(runId: string): Promise<void> {
   await kv.zrem(RUNS_INDEX, runId);
 }
 
+// One-time scan that finds any `run:{uuid}` keys not yet present in the sorted
+// set and adds them. Idempotent: calling it again is cheap once the index is
+// populated because the early-exit on a non-empty index skips the SCAN.
+export async function backfillIndexIfEmpty(): Promise<number> {
+  const existing = await kv.zcard(RUNS_INDEX);
+  if (existing > 0) return 0;
+
+  let cursor: string | number = 0;
+  let added = 0;
+  do {
+    const result = (await kv.scan(cursor as number, { match: "run:*", count: 200 })) as [
+      string | number,
+      string[],
+    ];
+    cursor = result[0];
+    const keys = result[1] ?? [];
+    for (const k of keys) {
+      // Skip per-batch / per-chunk sub-keys (they contain extra colons).
+      const rest = k.startsWith("run:") ? k.slice(4) : k;
+      if (rest.includes(":")) continue;
+      const state = await kv.get<RunState>(k);
+      if (state?.runId && typeof state.createdAt === "number") {
+        await kv.zadd(RUNS_INDEX, { score: state.createdAt, member: state.runId });
+        added++;
+      }
+    }
+  } while (cursor !== 0 && cursor !== "0");
+  return added;
+}
+
 function summarize(state: RunState): RunSummary {
   const steps = [state.step1.status, state.step2.status, state.step3.status, state.step4.status];
   let finalStatus: RunSummary["finalStatus"];

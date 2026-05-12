@@ -1,6 +1,6 @@
 import Link from "next/link";
 import TopNav from "@/components/TopNav";
-import { listRuns } from "@/lib/store";
+import { backfillIndexIfEmpty, listRuns } from "@/lib/store";
 import { formatMmSs } from "@/lib/timing";
 import type { RunSummary } from "@/lib/types";
 
@@ -34,6 +34,8 @@ function formatDate(ts: number): string {
 }
 
 export default async function RunsIndexPage() {
+  // Pick up any pre-existing runs that predate the index (one-shot, cheap once filled).
+  await backfillIndexIfEmpty();
   const runs = await listRuns(200);
 
   return (
