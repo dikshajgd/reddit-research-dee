@@ -9,8 +9,8 @@ export default function PipelineForm() {
   const [industry, setIndustry] = useState("");
   const [brandUrl, setBrandUrl] = useState("");
   const [extraKeywords, setExtraKeywords] = useState("");
-  const [maxThreads, setMaxThreads] = useState(50);
-  const [maxComments, setMaxComments] = useState(100);
+  const [maxThreads, setMaxThreads] = useState(20);
+  const [maxComments, setMaxComments] = useState(25);
   const [haveMap, setHaveMap] = useState(false);
   const [uploadedStep1Md, setUploadedStep1Md] = useState("");
   const [submitting, setSubmitting] = useState(false);

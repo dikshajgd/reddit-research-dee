@@ -8,14 +8,20 @@ import type { RedditThread } from "@/lib/types";
 export const runtime = "nodejs";
 export const maxDuration = 300;
 
-// POST /api/runs/{runId}/step2/batch?i=N
+// POST /api/runs/{runId}/step2/batch?i=N&pass=P
 // Idempotent: re-running a completed batch is a no-op.
+// `pass` defaults to 1 for backward compatibility with pre-pass-aware clients.
 export async function POST(req: Request, { params }: { params: Promise<{ runId: string }> }) {
   const { runId } = await params;
   const url = new URL(req.url);
   const i = Number(url.searchParams.get("i"));
+  const passParam = url.searchParams.get("pass");
+  const pass = Number.isInteger(Number(passParam)) ? Number(passParam) : 1;
   if (!Number.isInteger(i) || i < 0) {
     return NextResponse.json({ error: "missing batch index ?i=" }, { status: 400 });
+  }
+  if (pass < 1) {
+    return NextResponse.json({ error: "invalid pass" }, { status: 400 });
   }
 
   const state = await getRun(runId);
@@ -23,22 +29,23 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
   const parsed = state.step1.parsed;
   if (!parsed) return NextResponse.json({ error: "Step 1 incomplete" }, { status: 400 });
 
-  const existing = await getBatch(runId, i);
+  const existing = await getBatch(runId, pass, i);
   if (existing?.status === "complete") {
     return NextResponse.json({ ok: true, alreadyComplete: true });
   }
 
-  const allUrls = buildSearchUrls(parsed);
+  const allUrls = buildSearchUrls(parsed, pass - 1);
   const batches = chunkUrls(allUrls);
   const batchUrls = batches[i];
   if (!batchUrls) return NextResponse.json({ error: "batch index out of range" }, { status: 400 });
 
-  await setBatch(runId, i, { status: "running" });
+  await setBatch(runId, pass, i, { status: "running" });
 
   try {
+    // Hard-cap posts-per-URL to keep Apify spend predictable.
     const items = await runApifyBatch(
       batchUrls,
-      Math.min(25, state.config.maxThreads),
+      Math.min(10, state.config.maxThreads),
       state.config.maxComments,
     );
 
@@ -53,15 +60,20 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
       }
     }
     const merged = deduplicateThreads([...accumulated, ...items]).slice(0, MAX_TOTAL_THREADS);
+    const newUnique = merged.length - accumulated.length;
     const threadsBlobUrl = await putJson(blobPath(runId, "step2-threads.json"), merged);
 
-    await setBatch(runId, i, { status: "complete", threadCount: items.length });
+    await setBatch(runId, pass, i, { status: "complete", threadCount: items.length });
 
     const updated = await updateRun(runId, (s) => {
       s.step2.completedBatches = Math.min(s.step2.completedBatches + 1, s.step2.plannedBatches);
       s.step2.threadCount = merged.length;
       s.step2.threadsBlobUrl = threadsBlobUrl;
-      appendLog(s, "info", `Step 2 batch ${i + 1}: +${items.length} threads (total ${merged.length}).`);
+      appendLog(
+        s,
+        "info",
+        `Step 2 pass ${pass} batch ${i + 1}: +${items.length} raw, +${newUnique} new unique (total ${merged.length}).`,
+      );
 
       if (s.step2.completedBatches >= s.step2.plannedBatches) {
         s.step2.completedAt = Date.now();
@@ -74,7 +86,7 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
         } else {
           s.step2.status = "complete";
           s.step2.method = "apify";
-          appendLog(s, "info", `Step 2 complete via Apify. ${merged.length} threads.`);
+          appendLog(s, "info", `Step 2 pass ${pass} complete. ${merged.length} threads total.`);
         }
       }
     });
@@ -82,10 +94,10 @@ export async function POST(req: Request, { params }: { params: Promise<{ runId: 
     return NextResponse.json(updated);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    await setBatch(runId, i, { status: "failed", error: msg });
+    await setBatch(runId, pass, i, { status: "failed", error: msg });
     const updated = await updateRun(runId, (s) => {
       // Don't fail the whole step on one batch — surface the error in logs.
-      appendLog(s, "error", `Step 2 batch ${i + 1} failed: ${msg}`);
+      appendLog(s, "error", `Step 2 pass ${pass} batch ${i + 1} failed: ${msg}`);
       s.step2.completedBatches = Math.min(s.step2.completedBatches + 1, s.step2.plannedBatches);
       if (s.step2.completedBatches >= s.step2.plannedBatches) {
         s.step2.completedAt = Date.now();

@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { RunState } from "@/lib/types";
 import StepProgress from "./StepProgress";
 import ResultsTabs from "./ResultsTabs";
@@ -25,6 +25,8 @@ async function postJson(url: string, body?: unknown) {
 export default function PipelineRunner({ initial }: { initial: RunState }) {
   const [state, setState] = useState<RunState>(initial);
   const [error, setError] = useState<string | null>(null);
+  const [scrapingMore, setScrapingMore] = useState(false);
+  const [continuing, setContinuing] = useState(false);
   const driverStarted = useRef(false);
 
   // Poll while anything is in flight.
@@ -55,7 +57,39 @@ export default function PipelineRunner({ initial }: { initial: RunState }) {
     };
   }, [state.runId, state.step1.status, state.step2.status, state.step3.status, state.step4.status]);
 
-  // Drive the pipeline forward from the client.
+  // Run Step 2 batches for a given pass. Sequential to avoid blob write race.
+  const runStep2Batches = useCallback(
+    async (batches: string[][], pass: number) => {
+      for (let i = 0; i < batches.length; i++) {
+        await postJson(`/api/runs/${state.runId}/step2/batch?i=${i}&pass=${pass}`);
+      }
+    },
+    [state.runId],
+  );
+
+  const runStep3And4 = useCallback(
+    async (runId: string) => {
+      const startRes = await postJson(`/api/runs/${runId}/step3/start`);
+      const planned: number = startRes.plannedChunks ?? 1;
+      for (let i = 0; i < planned; i++) {
+        await postJson(`/api/runs/${runId}/step3/chunk?i=${i}`);
+      }
+      let s = await fetchState(runId);
+      if (s.step3.status === "merging") {
+        await postJson(`/api/runs/${runId}/step3/merge`);
+        s = await fetchState(runId);
+      }
+      if (s.step3.status === "complete" && s.step4.status === "pending") {
+        await postJson(`/api/runs/${runId}/step4`);
+        s = await fetchState(runId);
+      }
+      setState(s);
+    },
+    [],
+  );
+
+  // Drive Step 1 and the FIRST Step 2 pass automatically. Stop before Step 3
+  // so the user can decide whether to continue or scrape more.
   useEffect(() => {
     if (driverStarted.current) return;
     driverStarted.current = true;
@@ -73,41 +107,18 @@ export default function PipelineRunner({ initial }: { initial: RunState }) {
         }
         if (s.step1.status === "failed") return;
 
-        // Step 2 — only auto-run on first attempt.
+        // Step 2 first pass
         if (s.step2.status === "pending") {
           const startRes = await postJson(`/api/runs/${runId}/step2/start`);
           const batches: string[][] = startRes.batches ?? [];
+          const pass: number = startRes.pass ?? 1;
           for (let i = 0; i < batches.length; i++) {
-            await postJson(`/api/runs/${runId}/step2/batch?i=${i}`);
+            await postJson(`/api/runs/${runId}/step2/batch?i=${i}&pass=${pass}`);
           }
           s = await fetchState(runId);
           setState(s);
         }
-        if (s.step2.status === "failed") return;
-        if (s.step2.status !== "complete" && s.step2.status !== "uploaded") return;
-
-        // Step 3
-        if (s.step3.status === "pending") {
-          const startRes = await postJson(`/api/runs/${runId}/step3/start`);
-          const planned: number = startRes.plannedChunks ?? 1;
-          for (let i = 0; i < planned; i++) {
-            await postJson(`/api/runs/${runId}/step3/chunk?i=${i}`);
-          }
-          s = await fetchState(runId);
-          if (s.step3.status === "merging") {
-            await postJson(`/api/runs/${runId}/step3/merge`);
-            s = await fetchState(runId);
-          }
-          setState(s);
-        }
-        if (s.step3.status !== "complete") return;
-
-        // Step 4
-        if (s.step4.status === "pending") {
-          await postJson(`/api/runs/${runId}/step4`);
-          s = await fetchState(runId);
-          setState(s);
-        }
+        // STOP HERE — user must click Continue or Scrape more.
       } catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
@@ -119,12 +130,10 @@ export default function PipelineRunner({ initial }: { initial: RunState }) {
     try {
       const startRes = await postJson(`/api/runs/${state.runId}/step2/start`);
       const batches: string[][] = startRes.batches ?? [];
-      for (let i = 0; i < batches.length; i++) {
-        await postJson(`/api/runs/${state.runId}/step2/batch?i=${i}`);
-      }
+      const pass: number = startRes.pass ?? 1;
+      await runStep2Batches(batches, pass);
       const next = await fetchState(state.runId);
       setState(next);
-      driverStarted.current = false;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -142,11 +151,48 @@ export default function PipelineRunner({ initial }: { initial: RunState }) {
       });
       const next = await fetchState(state.runId);
       setState(next);
-      driverStarted.current = false;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }
+
+  async function onScrapeMore() {
+    setError(null);
+    setScrapingMore(true);
+    try {
+      const startRes = await postJson(`/api/runs/${state.runId}/step2/more`);
+      if (startRes.error) throw new Error(startRes.error);
+      const batches: string[][] = startRes.batches ?? [];
+      const pass: number = startRes.pass ?? 1;
+      // Pull the updated state right away so the UI reflects the new running pass.
+      setState(await fetchState(state.runId));
+      await runStep2Batches(batches, pass);
+      setState(await fetchState(state.runId));
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setScrapingMore(false);
+    }
+  }
+
+  async function onContinueToExtraction() {
+    setError(null);
+    setContinuing(true);
+    try {
+      await runStep3And4(state.runId);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setContinuing(false);
+    }
+  }
+
+  // Gate panel: shows between Step 2 completion and Step 3 start.
+  const showStep2Gate =
+    (state.step2.status === "complete" || state.step2.status === "uploaded") &&
+    state.step3.status === "pending" &&
+    !continuing;
+  const isApifyPass = state.step2.method === "apify";
 
   return (
     <div className="space-y-6">
@@ -179,6 +225,37 @@ export default function PipelineRunner({ initial }: { initial: RunState }) {
                 }}
               />
             </label>
+          </div>
+        </Card>
+      )}
+
+      {showStep2Gate && (
+        <Card className="p-4 space-y-3">
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <h3 className="font-semibold">Scraping done</h3>
+            <p className="text-xs text-neutral-600">
+              {state.step2.threadCount} unique threads collected
+              {isApifyPass ? ` · ${state.step2.passCount ?? 1} pass${(state.step2.passCount ?? 1) > 1 ? "es" : ""}` : ""}
+            </p>
+          </div>
+          <p className="text-sm text-neutral-600">
+            Continue to VOC extraction, or grab more data first.
+            {isApifyPass &&
+              " Each extra pass uses a fresh slice of keywords and dedupes against what you already have."}
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button onClick={onContinueToExtraction} disabled={continuing || scrapingMore}>
+              ▶️ Continue to Step 3
+            </Button>
+            {isApifyPass && (
+              <Button
+                variant="secondary"
+                onClick={onScrapeMore}
+                disabled={scrapingMore || continuing}
+              >
+                {scrapingMore ? "Scraping…" : "➕ Scrape more"}
+              </Button>
+            )}
           </div>
         </Card>
       )}

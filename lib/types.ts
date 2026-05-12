@@ -65,6 +65,8 @@ export type RunState = {
     error?: string;
     startedAt?: number;
     completedAt?: number;
+    /** Number of scrape passes attempted (1 = initial; >1 = "scrape more" passes). */
+    passCount?: number;
   };
   step3: {
     status: StepStatus;

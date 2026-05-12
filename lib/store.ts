@@ -7,7 +7,8 @@ const TRANSIENT_TTL_SECONDS = 60 * 60 * 24 * 14;
 
 const RUNS_INDEX = "runs:index";
 const runKey = (runId: string) => `run:${runId}`;
-const batchKey = (runId: string, i: number) => `run:${runId}:step2:batch:${i}`;
+const batchKey = (runId: string, pass: number, i: number) =>
+  `run:${runId}:step2:pass:${pass}:batch:${i}`;
 const chunkKey = (runId: string, i: number) => `run:${runId}:step3:chunk:${i}`;
 
 export async function getRun(runId: string): Promise<RunState | null> {
@@ -35,12 +36,21 @@ export function appendLog(state: RunState, level: LogEntry["level"], msg: string
   if (state.logs.length > 500) state.logs = state.logs.slice(-500);
 }
 
-export async function getBatch(runId: string, i: number): Promise<BatchRecord | null> {
-  return (await kv.get<BatchRecord>(batchKey(runId, i))) ?? null;
+export async function getBatch(
+  runId: string,
+  pass: number,
+  i: number,
+): Promise<BatchRecord | null> {
+  return (await kv.get<BatchRecord>(batchKey(runId, pass, i))) ?? null;
 }
 
-export async function setBatch(runId: string, i: number, rec: BatchRecord): Promise<void> {
-  await kv.set(batchKey(runId, i), rec, { ex: TRANSIENT_TTL_SECONDS });
+export async function setBatch(
+  runId: string,
+  pass: number,
+  i: number,
+  rec: BatchRecord,
+): Promise<void> {
+  await kv.set(batchKey(runId, pass, i), rec, { ex: TRANSIENT_TTL_SECONDS });
 }
 
 export async function getChunk(runId: string, i: number): Promise<ChunkRecord | null> {

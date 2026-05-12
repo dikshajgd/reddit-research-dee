@@ -15,7 +15,8 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
     return NextResponse.json({ error: "Step 1 must complete first" }, { status: 400 });
   }
 
-  const urls = buildSearchUrls(parsed);
+  // First pass: passIndex = 0.
+  const urls = buildSearchUrls(parsed, 0);
   if (!urls.length) {
     const updated = await updateRun(runId, (s) => {
       s.step2.status = "failed";
@@ -35,9 +36,10 @@ export async function POST(_req: Request, { params }: { params: Promise<{ runId:
       completedBatches: 0,
       threadCount: 0,
       startedAt: Date.now(),
+      passCount: 1,
     };
-    appendLog(s, "info", `Step 2 planned ${batches.length} Apify batches.`);
+    appendLog(s, "info", `Step 2 pass 1 planned ${batches.length} Apify batches.`);
   });
 
-  return NextResponse.json({ ...updated, batches });
+  return NextResponse.json({ ...updated, batches, pass: 1 });
 }
